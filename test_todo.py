@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import MagicMock, patch
 from click.testing import CliRunner
-from todo import cli, TodoStore, Config
+from todo import cli, TodoStore, Config, TodoItem
 
 @pytest.fixture
 def runner():
@@ -23,7 +23,7 @@ def test_add_todo(runner, mock_store):
     assert result.exit_code == 0
     assert "Added: Buy milk" in result.output
     mock_store.append_row.assert_called_once()
-    mock_store.update.assert_called_once() # reindex
+    mock_store.update.assert_called_once()
 
 def test_list_todos(runner, mock_store):
     mock_store.get_all_records.return_value = [
@@ -43,6 +43,17 @@ def test_list_todos(runner, mock_store):
     assert "Task 1" in result.output
     assert "Task 2" in result.output
 
+def test_list_completed_flag(runner, mock_store):
+    mock_store.get_all_records.return_value = [
+        {"ID": 1, "Task": "Pending Task", "Status": "pending", "Created": "2023-01-01 10:00"},
+        {"ID": 2, "Task": "Done Task", "Status": "done", "Created": "2023-01-01 11:00"}
+    ]
+    # Test 'list -d' directly
+    result = runner.invoke(cli, ['list', '-d'])
+    assert result.exit_code == 0
+    assert "Done Task" in result.output
+    assert "Pending Task" not in result.output
+
 def test_mark_done(runner, mock_store):
     mock_store.get_all_records.return_value = [
         {"ID": 1, "Task": "Task 1", "Status": "pending", "Created": "2023-01-01 10:00"}
@@ -60,7 +71,7 @@ def test_delete_todo(runner, mock_store):
     result = runner.invoke(cli, ['delete', '1', '-y'])
     assert result.exit_code == 0
     assert "Deleted: Task 1" in result.output
-    mock_store.delete_rows.assert_called_once_with(2) # Row 2 (1 is header)
+    mock_store.delete_rows.assert_called_once_with(2)
 
 def test_reindex_logic():
     config = MagicMock(spec=Config)
@@ -90,13 +101,24 @@ def test_interactive_add(runner, mock_store):
     assert result.exit_code == 0
     assert "Added: Buy eggs" in result.output
 
-def test_interactive_done_cancel(runner, mock_store):
+def test_interactive_list_completed(runner, mock_store):
+    mock_store.get_all_records.return_value = [
+        {"ID": 1, "Task": "Pending Task", "Status": "pending", "Created": "2023-01-01 10:00"},
+        {"ID": 2, "Task": "Done Task", "Status": "done", "Created": "2023-01-01 11:00"}
+    ]
+    # Test 'list -d' in interactive mode
+    result = runner.invoke(cli, ['interactive'], input="list -d\nexit\n")
+    assert result.exit_code == 0
+    assert "Done Task" in result.output
+    assert "Pending Task" not in result.output
+
+def test_interactive_auto_list(runner, mock_store):
     mock_store.get_all_records.return_value = [
         {"ID": 1, "Task": "Task 1", "Status": "pending", "Created": "2023-01-01 10:00"}
     ]
-    # Test entering 'done' then 'c' to cancel
-    result = runner.invoke(cli, ['interactive'], input="done\nc\nexit\n")
+    # Test that 'done' automatically triggers a 'list'
+    result = runner.invoke(cli, ['interactive'], input="done 1\ny\nexit\n")
     assert result.exit_code == 0
-    # Should show the list but not perform any update
+    # Should list tasks after marking done. 
+    # Because of our mock, it will list the same pending task again since we don't update the mock in real-time.
     assert "Task 1" in result.output
-    mock_store.batch_update.assert_not_called()

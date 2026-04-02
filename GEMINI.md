@@ -8,28 +8,40 @@ A command-line todo list manager that uses Google Sheets as a persistent backend
 - **Google Sheets API**: `gspread`
 - **Authentication**: `google-auth`, `google-auth-oauthlib` (OAuth2 Desktop Flow)
 - **Formatting**: `tabulate` (for CLI tables)
+- **Testing**: `pytest` with `unittest.mock`
 
 ## Project Structure
-- `todo.py`: The main script containing all CLI commands and Google Sheets interaction logic.
-- `pyproject.toml`: Project metadata, dependencies, and the `todo` console script entry point.
-- `requirements.txt`: List of Python dependencies for easy installation.
-- `README.md`: Setup and usage instructions for users.
+- `todo.py`: The core implementation containing the modular architecture and CLI commands.
+- `test_todo.py`: Comprehensive test suite for CLI and storage logic (uses mocking).
+- `pyproject.toml`: Modern project metadata, dependencies, and script entry points.
+- `requirements.txt`: Python dependencies.
+- `README.md`: Setup and usage instructions.
+- `SKILLS.md`: Documentation for the packaged Gemini CLI skill.
+- `todo-cli/`: Source directory for the packaged skill.
+- `todo-cli.skill`: Distributable Gemini CLI skill package.
 
 ## Architecture & Data Flow
-1. **Configuration**: All local state (OAuth tokens, credentials, and app config) is stored in `~/.config/todo-cli/`.
-2. **Authentication**: Uses a `credentials.json` (OAuth Client ID) to initiate an authorization flow, saving a `token.json` for subsequent sessions.
-3. **Google Sheets**: 
-   - Each user has a "Todo List" spreadsheet.
-   - Tasks are stored in a worksheet named "Todos" with headers: `ID`, `Task`, `Status`, `Created`.
-   - `ID` values are auto-incremented based on the current list.
+The project uses a clean, modular architecture:
+
+1. **`TodoItem` (Dataclass)**: Provides type-safe representation of tasks.
+2. **`Config` (Class)**: Manages local configuration (`~/.config/todo-cli/`), including OAuth tokens and spreadsheet IDs.
+3. **`TodoStore` (Class)**: Encapsulates all persistence logic.
+   - **Authentication**: Handles lazy OAuth2 flow.
+   - **Optimization**: Uses `batch_update()` for efficient cell writes and `batch_clear()` for resets.
+   - **Sorting & Reindexing**: Automatically sorts tasks (Pending > Done) and resets IDs to 1..N after every write to maintain a clean list.
+
+## Core Features
+- **Interactive Mode**: A menu-driven session with implicit task adding, command parsing (via `shlex`), and automatic status re-listing.
+- **Batch Operations**: Support for multiple IDs in `done` and `delete` commands.
+- **Custom Views**: List tasks by status (`--completed` / `-d`).
 
 ## Development Guidelines
-- **Python Style**: Adhere to PEP 8. Use clear, descriptive variable names.
-- **CLI Design**: Continue using `click` for command and option definitions.
-- **Error Handling**: Gracefully handle missing credentials and network issues with user-friendly messages.
-- **Google API Usage**: Minimize API calls where possible (e.g., fetch all rows once for listing/searching).
+- **Python Style**: Adhere to PEP 8. Use clear, descriptive variable names and robust type hinting.
+- **Testing**: Every functional change must be accompanied by a test in `test_todo.py`. Use mocking to avoid hitting the live Google API during tests.
+- **Performance**: Always prefer batch operations over sequential API calls to minimize network overhead and avoid rate limiting.
 
 ## Setup for Development
 1. Install in editable mode: `pip install -e .`
-2. Ensure `~/.config/todo-cli/credentials.json` exists for authentication.
-3. Run tests or the CLI directly: `python todo.py list`
+2. Install test dependencies: `pip install pytest`
+3. Run the test suite: `pytest test_todo.py`
+4. Run the interactive CLI: `python todo.py interactive`
