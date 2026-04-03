@@ -24,18 +24,23 @@ class TodoItem:
     task: str
     status: str
     created: str
+    description: str = ""
 
     @classmethod
-    def from_dict(cls, data: Dict) -> "TodoItem":
-        return cls(
-            id=int(data["ID"]),
-            task=data["Task"],
-            status=data["Status"],
-            created=data["Created"]
-        )
+    def from_dict(cls, data: Dict) -> Optional["TodoItem"]:
+        try:
+            return cls(
+                id=int(data["ID"]),
+                task=data["Task"],
+                status=data["Status"],
+                created=data["Created"],
+                description=data.get("Description", "")
+            )
+        except (ValueError, KeyError):
+            return None
 
     def to_row(self) -> List:
-        return [self.id, self.task, self.status, self.created]
+        return [self.id, self.task, self.status, self.created, self.description]
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -74,7 +79,7 @@ class Config:
 
 class TodoStore:
     SHEET_NAME = "Todos"
-    HEADERS = ["ID", "Task", "Status", "Created"]
+    HEADERS = ["ID", "Task", "Status", "Created", "Description"]
 
     def __init__(self, config: Config):
         self.config = config
@@ -120,110 +125,155 @@ class TodoStore:
             try:
                 self._sheet = spreadsheet.worksheet(self.SHEET_NAME)
             except gspread.WorksheetNotFound:
-                self._sheet = spreadsheet.add_worksheet(title=self.SHEET_NAME, rows=1000, cols=4)
+                self._sheet = spreadsheet.add_worksheet(title=self.SHEET_NAME, rows=1000, cols=5)
                 self._sheet.append_row(self.HEADERS)
 
             # Ensure headers
-            if self._sheet.row_values(1) != self.HEADERS:
+            if self._sheet.row_values(1)[:5] != self.HEADERS:
                 self._sheet.insert_row(self.HEADERS, 1)
         return self._sheet
 
     def get_all(self) -> List[TodoItem]:
         records = self.sheet.get_all_records()
-        return [TodoItem.from_dict(r) for r in records]
+        items = [TodoItem.from_dict(r) for r in records]
+        return [i for i in items if i is not None]
 
-    def add(self, task: str):
+    def add(self, task: str, description: str = ""):
         items = self.get_all()
-        new_id = len(items) + 1
         created = datetime.now().strftime("%Y-%m-%d %H:%M")
-        self.sheet.append_row([new_id, task, "pending", created])
-        self.reindex()
+        items.append(TodoItem(id=0, task=task, status="pending", created=created, description=description))
+        self.sync(items)
 
     def mark_done(self, ids: List[int]):
         items = self.get_all()
-        updates = []
-        for i, item in enumerate(items, start=2):
+        changed = False
+        for item in items:
             if item.id in ids and item.status != "done":
-                updates.append({
-                    'range': f'C{i}',
-                    'values': [['done']]
-                })
+                item.status = "done"
+                changed = True
         
-        if updates:
-            self.sheet.batch_update(updates)
-            self.reindex()
+        if changed:
+            self.sync(items)
 
     def delete(self, ids: List[int]):
         items = self.get_all()
-        to_delete = sorted([i for i, item in enumerate(items, start=2) if item.id in ids], reverse=True)
-        if to_delete:
-            for row_idx in to_delete:
-                self.sheet.delete_rows(row_idx)
-            self.reindex()
+        # Keep only items NOT in the ids list
+        new_items = [i for i in items if i.id not in ids]
+        if len(new_items) != len(items):
+            self.sync(new_items)
 
-    def reindex(self):
-        items = self.get_all()
-        if not items:
-            # Clear range if empty
-            self.sheet.batch_clear(["A2:D1000"])
-            return
-        
+    def sync(self, items: List[TodoItem]):
+        """Sort, re-index, and sync the entire item list to the sheet."""
         # Sort: pending first, then by date
         items.sort(key=lambda x: (x.status == "done", x.created))
         
-        new_data = []
+        # Clear the entire sheet first to avoid leftover data
+        self.sheet.clear()
+        
+        new_data = [self.HEADERS]
         for i, item in enumerate(items, start=1):
             item.id = i
             new_data.append(item.to_row())
         
-        # Batch update the entire range
-        self.sheet.update(range_name=f"A2:D{len(new_data) + 1}", values=new_data)
+        # Update starting from A1
+        self.sheet.update(range_name=f"A1:E{len(new_data)}", values=new_data)
 
 # ── CLI Commands ──────────────────────────────────────────────────────────────
 
-@click.group()
+@click.group(invoke_without_command=True)
 @click.pass_context
 def cli(ctx):
     """Todo list manager backed by Google Sheets."""
     ctx.obj = TodoStore(Config())
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(list_todos)
 
 @cli.command("list")
-@click.option("--all", "show_all", is_flag=True, help="Include completed items.")
+@click.option("-a", "show_all", is_flag=True, help="Include completed items.")
 @click.option("--completed", "-d", "show_completed", is_flag=True, help="Show only completed items.")
 @click.pass_obj
 def list_todos(store: TodoStore, show_all: bool, show_completed: bool):
     """Show todo items."""
-    items = store.get_all()
-    if show_completed:
-        items = [i for i in items if i.status == "done"]
-    elif not show_all:
-        items = [i for i in items if i.status != "done"]
+    all_items = store.get_all()
+    pending_count = sum(1 for i in all_items if i.status != "done")
+    done_count = sum(1 for i in all_items if i.status == "done")
 
-    if not items:
+    if show_completed:
+        display_items = [i for i in all_items if i.status == "done"]
+    elif not show_all:
+        display_items = [i for i in all_items if i.status != "done"]
+    else:
+        display_items = all_items
+
+    if display_items:
+        now = datetime.now()
+        table = []
+        for i in display_items:
+            # Parse created date
+            try:
+                created_dt = datetime.strptime(i.created, "%Y-%m-%d %H:%M")
+                delta = now - created_dt
+                days = delta.days
+                
+                if days < 3:
+                    age_str = click.style(f"{days}d", fg="green")
+                elif days < 7:
+                    age_str = click.style(f"{days}d", fg="yellow")
+                else:
+                    age_str = click.style(f"{days}d", fg="red")
+            except ValueError:
+                age_str = "-"
+
+            table.append([
+                i.id,
+                i.task,
+                click.style("done", fg="green") if i.status == "done" else click.style("pending", fg="yellow"),
+                age_str,
+                i.created,
+            ])
+        
+        headers = ["ID", "Task", "Status", "Age", "Created"]
+        click.echo(tabulate(table, headers=headers, tablefmt="rounded_outline"))
+    else:
         if show_completed:
             click.echo("No completed todos found.")
+        elif not show_all:
+            click.echo("No pending todos.")
         else:
-            click.echo("No pending todos." if not show_all else "No todos found.")
-        return
+            click.echo("No todos found.")
 
-    table = [
-        [
-            i.id,
-            i.task,
-            click.style("done", fg="green") if i.status == "done" else click.style("pending", fg="yellow"),
-            i.created,
-        ]
-        for i in items
-    ]
-    click.echo(tabulate(table, headers=store.HEADERS, tablefmt="rounded_outline"))
+    # Show summary
+    summary = (
+        f"Summary: {click.style(str(pending_count), fg='yellow')} pending, "
+        f"{click.style(str(done_count), fg='green')} completed "
+        f"({len(all_items)} total)"
+    )
+    click.echo(summary)
 
 @cli.command("add")
 @click.argument("task")
+@click.option("--desc", "-m", help="Detailed task description (optional).")
 @click.pass_obj
-def add_todo(store: TodoStore, task: str):
-    """Add a new todo item."""
-    store.add(task)
+def add_todo(store: TodoStore, task: str, desc: str):
+    """Add a new todo item with an optional description."""
+    store.add(task, desc or "")
     click.echo(f"Added: {task}")
+
+@cli.command("show")
+@click.argument("id", type=int)
+@click.pass_obj
+def show_todo(store: TodoStore, id: int):
+    """Show detailed information for a task."""
+    items = [i for i in store.get_all() if i.id == id]
+    if not items:
+        click.echo(f"No task found with ID {id}")
+        return
+    
+    item = items[0]
+    click.echo(click.style(f"\nTask #{item.id}: {item.task}", bold=True))
+    click.echo(f"Status:      {click.style(item.status, fg='green' if item.status == 'done' else 'yellow')}")
+    click.echo(f"Created:     {item.created}")
+    click.echo(f"Description: {item.description or '(no description)'}\n")
 
 @cli.command("done")
 @click.argument("ids", type=int, nargs=-1)
@@ -277,8 +327,9 @@ def interactive(ctx: click.Context):
     
     def print_help():
         click.echo(click.style("\nAvailable Commands:", bold=True))
-        click.echo("  list [-d|--all]  - Show tasks (default: pending, -d: done, --all: both)")
-        click.echo("  add <task>       - Add a new task (or just type the task)")
+        click.echo("  l [-d|-a]        - Show tasks (default: pending, -d: done, -a: all)")
+        click.echo("  show <id>        - Show task details including description")
+        click.echo("  add <task> [-m <desc>] - Add a new task with optional description")
         click.echo("  done [ids...]    - Mark tasks as complete")
         click.echo("  delete [ids...]  - Remove tasks")
         click.echo("  url              - Show spreadsheet link")
@@ -287,12 +338,60 @@ def interactive(ctx: click.Context):
         click.echo("  Type 'c' or 'cancel' to abort any prompt.")
 
     click.echo(click.style("Welcome to the Interactive Todo Manager!", fg="cyan", bold=True))
-    print_help()
+    ctx.invoke(list_todos)
+    click.echo(" (press 'h' for help)")
     
     while True:
         try:
-            line = click.prompt("> ", default="", show_default=False).strip()
-        except (click.Abort, EOFError):
+            # Use manual loop to build the line to support "instant h" 
+            # and allow backspacing over the first character.
+            click.echo("> ", nl=False)
+            
+            if not sys.stdin.isatty():
+                line = sys.stdin.readline().strip()
+                if not line: break
+                click.echo(line)
+            else:
+                line = ""
+                while True:
+                    c = click.getchar()
+                    
+                    # Handle Enter
+                    if c in ('\r', '\n'):
+                        click.echo("")
+                        break
+                    
+                    # Handle Backspace / Delete
+                    if c in ('\x7f', '\x08'):
+                        if line:
+                            line = line[:-1]
+                            # Erase char: backspace, space, backspace
+                            click.echo('\b \b', nl=False)
+                        continue
+                    
+                    # Handle Ctrl+C (Interrupt) or Ctrl+D (EOF)
+                    if c == '\x03' or c == '\x04':
+                        click.echo("") # New line before goodbye
+                        raise EOFError
+                    
+                    # "Instant h" - only if it's the first character
+                    if not line and c.lower() == 'h':
+                        click.echo("h")
+                        print_help()
+                        line = None
+                        break
+                    
+                    # Ignore other non-printable or escape characters for simplicity
+                    if ord(c) < 32 and c not in ('\r', '\n', '\b'):
+                        continue
+                        
+                    line += c
+                    click.echo(c, nl=False)
+                
+                if line is None: continue
+                line = line.strip()
+
+        except (click.Abort, EOFError, KeyboardInterrupt):
             click.echo("\nGoodbye!")
             break
             
@@ -301,7 +400,7 @@ def interactive(ctx: click.Context):
         try:
             parts = shlex.split(line)
         except ValueError as e:
-            click.echo(f"Error parsing command: {e}")
+            click.echo(f"\nError parsing command: {e}")
             continue
 
         if not parts: continue
@@ -311,12 +410,29 @@ def interactive(ctx: click.Context):
         if cmd in ["exit", "quit"]:
             click.echo("Goodbye!")
             break
-        elif cmd == "help":
+        elif cmd in ["help", "h"]:
             print_help()
-        elif cmd == "list":
-            show_all = "--all" in args
-            show_completed = "-d" in args or "--completed" in args
+        elif cmd in ["list", "l"] or cmd.startswith("l-"):
+            if cmd.startswith("l-"):
+                # Handle cases like "l-a" where no space was provided
+                actual_args = [cmd[1:]] + args
+            else:
+                actual_args = args
+            
+            show_all = "-a" in actual_args or "--all" in actual_args
+            show_completed = "-d" in actual_args or "--completed" in actual_args
             ctx.invoke(list_todos, show_all=show_all, show_completed=show_completed)
+        elif cmd == "show":
+            if args:
+                try:
+                    ctx.invoke(show_todo, id=int(args[0]))
+                except ValueError:
+                    click.echo("Invalid task ID.")
+            else:
+                try:
+                    id_input = click.prompt("Enter task ID", type=int)
+                    ctx.invoke(show_todo, id=id_input)
+                except (click.Abort, click.BadParameter): pass
         elif cmd == "url":
             ctx.invoke(show_url)
         elif cmd == "add":

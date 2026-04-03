@@ -37,14 +37,25 @@ python todo.py config --spreadsheet-id <your-sheet-id>
 ## Usage
 
 ```bash
-# List pending todos
+# Start an interactive session (lists pending tasks automatically)
+python todo.py interactive
+
+# List pending todos (shows age and status summary)
 python todo.py list
+# Or use the short alias
+python todo.py l
 
 # List all todos including completed
-python todo.py list --all
+python todo.py l -a
 
 # Add a new todo
 python todo.py add "Buy groceries"
+
+# Add a new todo with a description
+python todo.py add "Buy groceries" -m "Milk, eggs, and bread"
+
+# Show detailed information for a task (including description)
+python todo.py show 1
 
 # Mark item #3 as done
 python todo.py done 3

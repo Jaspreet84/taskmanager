@@ -8,11 +8,13 @@ This skill provides a command-line interface to manage tasks stored in a Google 
 
 ## Workflow
 
-1. **List Todos**: Use `todo list` to see pending tasks or `todo list --all` for all tasks.
-2. **Add Task**: Use `todo add "Task description"` to create a new task.
-3. **Complete Task**: Use `todo done <id>` to mark a task as finished.
-4. **Delete Task**: Use `todo delete <id>` to remove a task.
-5. **View URL**: Use `todo url` to get the spreadsheet link.
+1. **List Todos**: Use `todo list` (or `todo l`) to see pending tasks, showing their age and a summary. Use `todo l -a` for all tasks.
+2. **Show Task Details**: Use `todo show <id>` to view full details of a task, including its description.
+3. **Add Task**: Use `todo add "Task name"` to create a new task. You can optionally add a detailed description with `-m "Description text"`.
+4. **Complete Task**: Use `todo done <id>` to mark a task as finished.
+5. **Delete Task**: Use `todo delete <id>` to remove a task.
+6. **View URL**: Use `todo url` to get the spreadsheet link.
+7. **Interactive Mode**: Use `todo interactive` to enter a persistent, menu-driven session.
 
 ## Configuration
 
@@ -24,10 +26,12 @@ The tool automatically creates a "Todo List" spreadsheet on first use if not con
 The skill uses the `todo.py` script located in the `scripts/` directory.
 
 ### Commands
-- `python3 scripts/todo.py list`
-- `python3 scripts/todo.py list --all`
-- `python3 scripts/todo.py add "<task>"`
+- `python3 scripts/todo.py list` or `python3 scripts/todo.py l`
+- `python3 scripts/todo.py l -a`
+- `python3 scripts/todo.py show <id>`
+- `python3 scripts/todo.py add "<task>" [-m "<description>"]`
 - `python3 scripts/todo.py done <id>`
 - `python3 scripts/todo.py delete <id>`
 - `python3 scripts/todo.py url`
+- `python3 scripts/todo.py interactive`
 - `python3 scripts/todo.py config`
