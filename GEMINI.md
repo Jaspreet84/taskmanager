@@ -11,35 +11,35 @@ A command-line todo list manager that uses Google Sheets as a persistent backend
 - **Testing**: `pytest` with `unittest.mock`
 
 ## Project Structure
-- `todo.py`: The core implementation containing the modular architecture and CLI commands.
-- `test_todo.py`: Comprehensive test suite for CLI and storage logic (uses mocking).
-- `pyproject.toml`: Modern project metadata, dependencies, and script entry points.
-- `requirements.txt`: Python dependencies.
-- `README.md`: Setup and usage instructions.
-- `SKILLS.md`: Documentation for the packaged Gemini CLI skill.
-- `todo-cli/`: Source directory for the packaged skill.
-- `todo-cli.skill`: Distributable Gemini CLI skill package.
+- `todo.py`: Lightweight entry point for the CLI.
+- `cli.py`: Contains Click command definitions and the interactive loop logic.
+- `models.py`: Defines the `TodoItem` dataclass and row conversion logic.
+- `storage.py`: Encapsulates Google Sheets API interaction and synchronization.
+- `config.py`: Manages configuration files, directories, and environment variable overrides.
+- `test_todo.py`: Comprehensive test suite covering all modules with extensive mocking.
+- `pyproject.toml`: Project metadata, dependencies, and script entry points.
 
 ## Architecture & Data Flow
-The project uses a clean, modular architecture:
+The project uses a modular architecture for better maintainability:
 
-1. **`TodoItem` (Dataclass)**: Provides type-safe representation of tasks.
-2. **`Config` (Class)**: Manages local configuration (`~/.config/todo-cli/`), including OAuth tokens and spreadsheet IDs.
-3. **`TodoStore` (Class)**: Encapsulates all persistence logic.
-   - **Authentication**: Handles lazy OAuth2 flow.
-   - **Optimization**: Uses `batch_update()` for efficient cell writes and `batch_clear()` for resets.
-   - **Robustness**: `from_dict()` gracefully handles corrupted records or misplaced headers. `reindex()` ensures sheet integrity by clearing and overwriting from A1 with fresh headers.
-   - **Sorting & Reindexing**: Automatically sorts tasks (Pending > Done) and resets IDs to 1..N after every write to maintain a clean list.
+1. **`TodoItem` (models.py)**: Type-safe representation of tasks.
+2. **`Config` (config.py)**: Manages `~/.config/todo-cli/` and supports `TODO_CONFIG_DIR` overrides.
+3. **`TodoStore` (storage.py)**: Handles authentication, batch updates, and re-indexing.
+   - **Authentication**: Lazy OAuth2 flow with `credentials.json`.
+   - **Optimization**: Uses `clear()` and `update()` for efficient full-sheet synchronization.
+   - **Resiliency**: Robust error handling for API failures and corrupted config files.
+   - **Sorting**: Automatically sorts tasks (Pending > Done) and re-indexes IDs (1..N) after every write.
 
 ## Core Features
-- **Automatic Listing**: Automatically displays pending tasks and a status summary when the tool is launched without arguments or when starting an interactive session.
-- **Task Summary**: Provides a concise summary of tasks by status (e.g., "Summary: 2 pending, 1 completed (3 total)") at the end of every list output.
-- **Task Description**: Ability to add detailed descriptions to tasks using the `--desc` or `-m` flag during creation.
-- **Task Details**: A dedicated `show <id>` command to view full task details, including the description, which remains hidden in the general list view.
-- **Task Age Display**: Shows the age of each task in days. Age is color-coded for quick visual assessment: Green (< 3 days), Yellow (3-7 days), and Red (> 7 days).
-- **Interactive Mode**: A menu-driven session with implicit task adding, command parsing (via `shlex`), and automatic status re-listing. Supports a concise "press h for help" prompt with instant 'h' key detection. Commands include `l` for listing with `-a` (all) and `-d` (done) flags.
-- **Batch Operations**: Support for multiple IDs in `done` and `delete` commands.
-- **Custom Views**: List tasks by status using flags like `-a` for all tasks and `-d` for completed tasks.
+- **Smart Deletion**: Specifically warns if completed tasks are selected for deletion, offering to skip them and only delete pending tasks.
+- **Automatic Listing**: Displays pending tasks and a status summary on launch.
+- **Task Summary**: Concise status overview (Pending/Completed/Total).
+- **Task Descriptions**: Add detailed notes via `--desc` or `-m`.
+- **Task Details**: `show <id>` command for full details including hidden descriptions.
+- **Color-coded Age**: Displays task age in days: Green (<3d), Yellow (3-7d), Red (>7d).
+- **Interactive Mode**: Menu-driven session with implicit adding and `shlex` parsing.
+- **Batch Operations**: Support for multiple IDs in `done` and `delete`.
+
 
 ## Development Guidelines
 - **Python Style**: Adhere to PEP 8. Use clear, descriptive variable names and robust type hinting.

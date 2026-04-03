@@ -61,6 +61,8 @@ python todo.py show 1
 python todo.py done 3
 
 # Delete item #5 (with confirmation prompt)
+# If item #5 is already completed, you will be prompted for additional confirmation
+# with an option to skip completed tasks if multiple IDs are provided.
 python todo.py delete 5
 
 # Delete without confirmation
