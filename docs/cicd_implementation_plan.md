@@ -16,9 +16,10 @@ This plan details the steps to implement the strategy described in `CICD.md`.
 - **Build Workflow**: Created `.github/workflows/build.yml` to package the wheel and `.skill` file.
 - **Release Workflow**: Created `.github/workflows/release.yml` to publish to GitHub Releases upon tagging.
 
-## Phase 4: Verification
-- Trigger and monitor initial workflow runs.
-- Verify coverage reports and artifact generation.
+## Phase 4: Verification [IN PROGRESS]
+- **Monitor CI/CD**: Verifying initial workflow runs on GitHub Actions.
+- **Artifact Check**: Ensuring `python-dist` and `todo-cli-skill` are generated correctly.
+- **Coverage**: Confirming coverage reports are uploaded.
 
 ---
 *Powered by GEMINI*

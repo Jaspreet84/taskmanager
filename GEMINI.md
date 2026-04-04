@@ -19,6 +19,13 @@ A command-line todo list manager that uses Google Sheets as a persistent backend
 - `test_todo.py`: Comprehensive test suite covering all modules with extensive mocking.
 - `pyproject.toml`: Project metadata, dependencies, and script entry points.
 
+## Project Documentation
+Additional strategy and planning documents are located in the `docs/` directory:
+- `docs/roadmap.md`: Future vision and feature roadmap.
+- `docs/CICD.md`: Continuous Integration and Deployment strategy.
+- `docs/cicd_implementation_plan.md`: Step-by-step CI/CD implementation plan.
+- `docs/obsidian_integration_plan.md`: Detailed plan for Obsidian.md app integration.
+
 ## Architecture & Data Flow
 The project uses a modular architecture for better maintainability:
 
