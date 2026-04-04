@@ -1,17 +1,18 @@
 """Google Sheets API interaction and synchronization. Powered by GEMINI."""
 import sys
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List
 
 import click
 import gspread
+from google.auth.exceptions import GoogleAuthError
+from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
-from google.auth.exceptions import GoogleAuthError
 
-from models import TodoItem
 from config import Config
+from models import TodoItem
+
 
 class TodoStore:
     SHEET_NAME = "Todos"
@@ -19,17 +20,20 @@ class TodoStore:
 
     def __init__(self, config: Config):
         self.config = config
-        self._sheet = None
+        self._sheet: Any = None
 
-    def get_credentials(self):
+    def get_credentials(self) -> Credentials:
         if not self.config.creds_file.exists():
-            click.echo(f"Error: credentials.json not found at {self.config.creds_file}", err=True)
+            msg = f"Error: credentials.json not found at {self.config.creds_file}"
+            click.echo(msg, err=True)
             sys.exit(1)
 
         creds = None
         if self.config.token_file.exists():
             try:
-                creds = Credentials.from_authorized_user_file(str(self.config.token_file), self.config.scopes)
+                creds = Credentials.from_authorized_user_file(  # type: ignore
+                    str(self.config.token_file), self.config.scopes
+                )
             except Exception:
                 pass
 
@@ -38,28 +42,31 @@ class TodoStore:
                 if creds and creds.expired and creds.refresh_token:
                     creds.refresh(Request())
                 else:
-                    flow = InstalledAppFlow.from_client_secrets_file(str(self.config.creds_file), self.config.scopes)
+                    flow = InstalledAppFlow.from_client_secrets_file(
+                        str(self.config.creds_file), self.config.scopes
+                    )
                     creds = flow.run_local_server(port=0)
                 self.config.token_file.write_text(creds.to_json())
             except (GoogleAuthError, Exception) as e:
                 click.echo(f"Authentication error: {e}", err=True)
                 sys.exit(1)
-        return creds
+        return creds  # type: ignore
 
     @property
-    def sheet(self):
+    def sheet(self) -> Any:
         if self._sheet is None:
             try:
                 creds = self.get_credentials()
                 gc = gspread.authorize(creds)
                 spreadsheet_id = self.config.get_spreadsheet_id()
-                
+
                 spreadsheet = None
                 if spreadsheet_id:
                     try:
                         spreadsheet = gc.open_by_key(spreadsheet_id)
                     except gspread.SpreadsheetNotFound:
-                        click.echo(f"Warning: Spreadsheet ID {spreadsheet_id} not found. Creating new one.")
+                        msg = f"Warning: Spreadsheet {spreadsheet_id} not found."
+                        click.echo(msg)
                         pass
 
                 if spreadsheet is None:
@@ -70,7 +77,9 @@ class TodoStore:
                 try:
                     self._sheet = spreadsheet.worksheet(self.SHEET_NAME)
                 except gspread.WorksheetNotFound:
-                    self._sheet = spreadsheet.add_worksheet(title=self.SHEET_NAME, rows=1000, cols=5)
+                    self._sheet = spreadsheet.add_worksheet(
+                        title=self.SHEET_NAME, rows=1000, cols=5
+                    )
                     self._sheet.append_row(self.HEADERS)
 
                 # Ensure headers
@@ -94,57 +103,53 @@ class TodoStore:
             click.echo(f"Error fetching todos: {e}", err=True)
             return []
 
-    def add(self, task: str, description: str = ""):
+    def add(self, task: str, description: str = "") -> None:
         items = self.get_all()
         created = datetime.now().strftime("%Y-%m-%d %H:%M")
-        items.append(TodoItem(id=0, task=task, status="pending", created=created, description=description))
+        new_item = TodoItem(
+            id=0, task=task, status="pending", created=created, description=description
+        )
+        items.append(new_item)
         self.sync(items)
 
-    def mark_done(self, ids: List[int]):
+    def mark_done(self, ids: List[int]) -> None:
         items = self.get_all()
         changed = False
         for item in items:
             if item.id in ids and item.status != "done":
                 item.status = "done"
                 changed = True
-        
+
         if changed:
             self.sync(items)
 
-    def delete(self, ids: List[int]):
+    def delete(self, ids: List[int]) -> None:
         items = self.get_all()
         # Keep only items NOT in the ids list
         new_items = [i for i in items if i.id not in ids]
         if len(new_items) != len(items):
             self.sync(new_items)
 
-    def sync(self, items: List[TodoItem]):
+    def sync(self, items: List[TodoItem]) -> None:
         """Sort, re-index, and sync the entire item list to the sheet."""
         # Sort: pending first, then by date
         items.sort(key=lambda x: (x.status == "done", x.created))
-        
+
         # Prepare data with new IDs
         new_data = [self.HEADERS]
         for i, item in enumerate(items, start=1):
             item.id = i
             new_data.append(item.to_row())
-        
+
         try:
-            # More efficient update strategy: 
-            # 1. Clear existing content to avoid leftovers (but more safely if possible)
-            # 2. Update with new data
-            # For small to medium lists, clear + update is okay if wrapped in try/except.
-            # Using batch_update would be even better for very large sheets.
-            
-            # Get current sheet size
-            current_rows = self.sheet.row_count
-            
-            # Clear current data (range A1:E)
+            # More efficient update strategy:
+            # Clear existing content to avoid leftovers
+            # Update with new data
             self.sheet.clear()
-            
+
             # Update starting from A1
             end_row = len(new_data)
             self.sheet.update(range_name=f"A1:E{end_row}", values=new_data)
-            
+
         except Exception as e:
             click.echo(f"Error syncing to Google Sheets: {e}", err=True)
